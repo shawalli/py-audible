@@ -39,24 +39,67 @@ class AudibleDll(object):
 		self._handle_funcs = UserDict()
 		
 		self._load_AAXOpenFileWinW()
+		self._load_AAXCloseFile()
+		self._load_AAXAuthenticateWin()
+		self._load_AAXSeek()
+		self._load_AAXGetAudioChannelCount()
+	
+	def _loadDllFunction(self, func_name, func_args):
+		f = self._handle[func_name]
+		f.argtypes = func_args[:]
+		setattr(self._handle_funcs, func_name, f)
 	
 	def _load_AAXOpenFileWinW(self):
-		func_name = 'AAXOpenFileWinW'
-		f = self._handle[func_name]
-		f.argtypes = [POINTER(POINTER(c_ubyte)), wintypes.LPWSTR]
-		
-		setattr(self._handle_funcs, func_name, f)
+		self._loadDllFunction(
+			'AAXOpenFileWinW',
+			[POINTER(POINTER(c_ubyte)), wintypes.LPWSTR])
+
+	def _load_AAXCloseFile(self):
+		self._loadDllFunction(
+			'AAXCloseFile',
+			[POINTER(c_ubyte)])
+
+	def _load_AAXAuthenticateWin(self):
+		self._loadDllFunction(
+			'AAXAuthenticateWin',
+			[POINTER(c_ubyte)])
+
+	def _load_AAXSeek(self):
+		self._loadDllFunction(
+			'AAXOpenFileWinW',
+			[POINTER(POINTER(c_ubyte)), c_int])
+
+	def _load_AAXGetAudioChannelCount(self):
+		self._loadDllFunction(
+			'AAXGetAudioChannelCount',
+			[POINTER(POINTER(c_ubyte)), POINTER(c_uint)])
 
 	def AAXOpenFileWinW(self, aax_filename):
 		aax_handle = POINTER(c_ubyte)()
-		print aax_handle
 		fname_buf = wintypes.LPWSTR(aax_filename)
-		print fname_buf
 		
 		returnCode = self._handle_funcs.AAXOpenFileWinW(byref(aax_handle), fname_buf)
 		self._checkFuncResult(returnCode, 'AAXOpenFileWinW')
 		
-		return aax_handle
+		return (returnCode, aax_handle)
 	
-	# def AAXCloseFile(self, aax_handle):
-		
+	def AAXCloseFile(self, aax_handle):
+		returnCode = self._handle_funcs.AAXCloseFile(aax_handle)
+		self._checkFuncResult(returnCode, 'AAXCloseFile')
+		return (returnCode,)
+
+	def AAXAuthenticateWin(self, aax_handle):
+		returnCode = self._handle_funcs.AAXAuthenticateWin(aax_handle)
+		self._checkFuncResult(returnCode, 'AAXAuthenticateWin')
+		return (returnCode,)
+
+	def AAXSeek(self, aax_handle, offset):
+		returnCode = self._handle_funcs.AAXSeek(aax_handle, offset)
+		self._checkFuncResult(returnCode, 'AAXSeek')
+		return (returnCode,)
+
+	def AAXGetAudioChannelCount(self, aax_handle):
+		channels = wintypes.DWORD()
+		returnCode = self._handle_funcs.AAXGetAudioChannelCount(aax_handle, byref(channels))
+		self._checkFuncResult(returnCode, 'AAXGetAudioChannelCount')
+		return (returnCode,channels)
