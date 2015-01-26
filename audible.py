@@ -8,8 +8,6 @@ from UserDict import UserDict
 DEFAULT_DLL_DIRECTORY = "C:\\Program Files (x86)\\Audible\Bin"
 DEFAULT_DLL_FILENAME = "AAXSDKWin.dll"
 
-DEFAULT_AUDIOBOOK_DIRECTORY = "C:\\Users\\Public\\Documents\\Audible\\Downloads"
-
 class DllReturnCodeError(Exception):
 	def __init__(self, returnCode):
 		returnCode = str(returnCode)
@@ -87,6 +85,14 @@ class AudibleDll(object):
 		self._loadDllFunction(
 			'AAXGetEncodedAudio',
 			[POINTER(c_ubyte), POINTER(c_char), wintypes.DWORD, POINTER(wintypes.DWORD)])
+	
+		self._loadDllFunction(
+			'AAXGetNextFrameInfo',
+			[POINTER(c_ubyte), POINTER(c_char)])
+		
+		self._loadDllFunction(
+			'AAXDecodePCMFrame',
+			[POINTER(c_ubyte), POINTER(c_char), wintypes.DWORD, POINTER(wintypes.DWORD), wintypes.DWORD, POINTER(wintypes.DWORD)])
 	
 	def AAXOpenFileWinW(self, file_path):
 		aax_handle = POINTER(c_ubyte)()
@@ -187,89 +193,25 @@ class AudibleDll(object):
 		if returnCode != 0:
 			raise DllReturnCodeError(returnCode)
 		return (buf, length.value)
-
-class Audiobook:
-	def __init__(self, filepath):
-		if os.path.exists(filepath) is False:
-			filepath = os.path.join(DEFAULT_AUDIOBOOK_DIRECTORY, filepath)
-			print 'Audiobook does not exist at \'%s\'; trying default directory' % filepath
-			if os.path.exists(filepath) is False:
-				raise OSError('Audiobook could not be found')
-
-		self._filepath = filepath
-		
-		self._dll = AudibleDll()
-		self._audiobook_handle = None
-		self.open()
-		self._authenticate()
-		# import struct
-		# for i in range(1,18):
-			# print i
-			# c = self._dll.AAXGetChapterInfo(self._audiobook_handle, i)
-			# print '%08x%08x%08x%08x%08x' % struct.unpack_from('<5I',c.raw),
-			# print '%x%x%x' % struct.unpack_from('<3B', c.raw, offset=20)
-
-	def _verify_opened(self):
-		if self._audiobook_handle is None:
-			raise ValueError('Operation on closed audiobook')
-
-	def _authenticate(self):
-		try:
-			self._dll.AAXAuthenticateWin(self._audiobook_handle)
-		except DllReturnCodeError:
-			raise Exception('Authentication error; trying logging in from AudibleManager first')
-
-	def _get_chapter_offset(self, chapter):
-		offset = 0
-		
-		for i in range(0, (chapter - 1)):
-			offset += self._dll.AAXGetChapterStartTime(self._audiobook_handle, chapter)
-		return offset
 	
-	# def _get_chapter_length(self, chapter):
+	def AAXDecodePCMFrame(self, aax_handle, buf, buf_size, bytes_left_in_frame):
+		buf_size = wintypes.DWORD(buf_size)
+		bytes_left_in_frame = wintypes.DWORD(bytes_left_in_frame)
+		decoded_buf = create_string_buffer(0x2000)
+		out_size = wintypes.DWORD()
 		
+		returnCode = self._handle_funcs.AAXDecodePCMFrame(aax_handle, buf, buf_size, decoded_buf, bytes_left_in_frame, byref(out_size))
+		if returnCode != 0:
+			raise DllReturnCodeError(returnCode)
+		return (decoded_buf, out_size.value)
 	
-	def open(self):
-		if self._audiobook_handle is not None:
-			return
-		self._audiobook_handle = self._dll.AAXOpenFileWinW(self._filepath)
-	
-	def close(self):
-		if self._audiobook_handle is None:
-			return
-		self._dll.AAXCloseFile(self._audiobook_handle)
-		self._audiobook_handle = None
-	
-	def seek(self, offset):
-		self._verify_opened()
-		self._dll.AAXSeek(self._audiobook_handle, offset)
-
-	def get_chapter_count(self):
-		self._verify_opened()
-		chapters = self._dll.AAXGetChapterCount(self._audiobook_handle)
-		return chapters.value
-
-	def get_chapter_encoded_audio(self, book_chapter):
-		chapter_count = self.get_chapter_count()
-		if book_chapter > chapter_count:
-			raise IndexError('Chapter out of bounds (%d chapters)' % chapter_count)
-		# change from 1-indexed (book chapters start at 1) to 0-indexed (arrays start at 0)
-		chapter = book_chapter - 1
+	def AAXGetNextFrameInfo(self, aax_handle):
+		buf = create_string_buffer(24)
 		
-		offset = self._get_chapter_offset(chapter)
-		length = self._dll.AAXGetChapterStartTime(self._audiobook_handle, chapter)
-		print 'off: len'
-		print offset, length
-		
-		self._dll.AAXSeek(self._audiobook_handle, offset)
-		return self._dll.AAXGetEncodedAudio(self._audiobook_handle, length)
-	
-	def dummy(self):
-		self._dll.AAXSeek(self._audiobook_handle, 0)
-		# self._dll.AAXSeekToChapter(self._audiobook_handle, 17)
-		length = 1
-		overall_length = 0
-		while (length > 0):
-			(buf, length) = self._dll.AAXGetEncodedAudio(self._audiobook_handle, 0x400)
-			overall_length += length
-			print '%x,  %x' % (length,overall_length)
+		returnCode = self._handle_funcs.AAXGetNextFrameInfo(aax_handle, buf)
+		if returnCode != 0:
+			if returnCode == -24:
+				buf = None
+			else:
+				raise DllReturnCodeError(returnCode)
+		return buf
