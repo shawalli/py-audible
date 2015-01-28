@@ -1,6 +1,7 @@
 
 import os
 import audible
+import avconv
 
 DEFAULT_AUDIOBOOK_DIRECTORY = "C:\\Users\\Public\\Documents\\Audible\\Downloads"
 
@@ -17,7 +18,7 @@ class Audiobook:
 
         self._filepath = filepath
         
-        self._dll = audible.AudibleDll(UNIX_AUDIBLE_DLL)
+        self._dll = audible.AudibleDll()
         self._audiobook_handle = None
         self.open()
         self._authenticate()
@@ -52,7 +53,7 @@ class Audiobook:
     def open(self):
         if self._audiobook_handle is not None:
             return
-        self._audiobook_handle = self._dll.AAXOpenFileWinW(self._filepath)
+        self._audiobook_handle = self._dll.AAXOpenFileWinA(self._filepath)
     
     def close(self):
         if self._audiobook_handle is None:
@@ -85,29 +86,50 @@ class Audiobook:
         return self._dll.AAXGetEncodedAudio(self._audiobook_handle, length)
     
     def _decode_book_iter(self):
-        self._dll.AAXSeek(self._audiobook_handle, 0)
         # self._dll.AAXSeekToChapter(self._audiobook_handle, 17)
         
         sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
-        channels = self._dll.AAXGetChapterCount(self._audiobook_handle)
+        channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
         
+        print sample_rate
+        print channels
         frame_width = sample_rate * channels
         frame = ''
         frame_bytes = 0
         
+        self._dll.AAXSeek(self._audiobook_handle, 0)
+        
+        # mod = 0
+        enc_buf = ''
         frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
+        from binascii import hexlify
         while frame_info is not None:
             (buf, length) = self._dll.AAXGetEncodedAudio(self._audiobook_handle, 0x400)
+            # print 'outsize:%d (%x)' % (length,length)
+            # print hexlify(buf.raw[:length])
+            enc_buf += buf.raw[:length]
             (decoded_buf, decoded_buf_length) = self._dll.AAXDecodePCMFrame(self._audiobook_handle, buf, length, (frame_width - frame_bytes))
-            frame += buf.raw[:decoded_buf_length]
+            frame += decoded_buf.raw[:decoded_buf_length]
             frame_bytes += decoded_buf_length
+            # print 'processed:%d (%x)' % (decoded_buf_length, decoded_buf_length)
             
             if frame_width - frame_bytes < 4096:
-                yield frame
+                # print 'read:%d (%x)   framesize:%d (%x) ... processing' % (frame_bytes, frame_bytes, frame_width, frame_width)
+                yield (frame, enc_buf)
                 frame = ''
                 frame_bytes = 0
-                
+                enc_buf = ''
+                # mod += 1
+                # if mod % 100 == 0:
+                    # print 'processed %d frames' % mod
+            frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
+        print 'done decoding'
         if frame_bytes > 0:
-            yield frame
-#     
-#     def decode_book(self):
+            yield (frame, enc_buf)
+    
+    def decode_book(self):
+        av = avconv.AvConv('old2.mp3', *'-f s16le -ac 2 -ar 22050 -i -'.split(' '))
+        for (i, (frame, enc_buf)) in enumerate(self._decode_book_iter()):
+            av.write(frame)
+        print 'done'
+        av.close()
