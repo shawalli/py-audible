@@ -123,7 +123,6 @@ class Audiobook:
                 # if mod % 100 == 0:
                     # print 'processed %d frames' % mod
             frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
-        print 'done decoding'
         if frame_bytes > 0:
             yield (frame, enc_buf)
     
@@ -131,5 +130,4 @@ class Audiobook:
         av = avconv.AvConv('old2.mp3', *'-f s16le -ac 2 -ar 22050 -i -'.split(' '))
         for (i, (frame, enc_buf)) in enumerate(self._decode_book_iter()):
             av.write(frame)
-        print 'done'
         av.close()
