@@ -37,6 +37,13 @@ class Audiobook:
         self._sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
         self._frame_width = self._channels * self._sample_rate
     
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        self._close()
+        self._dll = None
+    
     def _authenticate(self):
         try:
             self._dll.AAXAuthenticateWin(self._audiobook_handle)
