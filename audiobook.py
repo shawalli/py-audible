@@ -8,6 +8,8 @@ DEFAULT_AUDIOBOOK_DIRECTORY = "C:\\Users\\Public\\Documents\\Audible\\Downloads"
 # UNIX_AUDIBLE_DLL = '/usr/share/audible/bin/AAXSDKWin.dll'
 # UNIX_AUDIOBOOK_DIR = os.path.join(os.getenv('HOME', default), 'Downloads')
 
+class AudiobookException(Exception): pass
+
 class Audiobook:
     def __init__(self, filepath):
         if os.path.exists(filepath) is False:
@@ -68,7 +70,7 @@ class Audiobook:
     def get_chapter_count(self):
         self._verify_opened()
         chapters = self._dll.AAXGetChapterCount(self._audiobook_handle)
-        return chapters.value
+        return chapters
 
     def get_chapter_encoded_audio(self, book_chapter):
         chapter_count = self.get_chapter_count()
@@ -84,6 +86,59 @@ class Audiobook:
         
         self._dll.AAXSeek(self._audiobook_handle, offset)
         return self._dll.AAXGetEncodedAudio(self._audiobook_handle, length)
+    
+    def get_frame_width(self):
+        sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
+        channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
+        return sample_rate * channels
+    
+    def decode_chapter(self, book_chapter, filename=None):
+        av = avconv.AvConv('old2.mp3', *'-f s16le -ac 2 -ar 22050 -i -'.split(' '))
+        for frame in self._decode_chapter_iter(book_chapter):
+            av.write(frame)
+        av.close()
+        return filename
+    
+    def _decode_chapter_iter(self, book_chapter):
+        chapter_count = self.get_chapter_count()
+        if book_chapter > chapter_count:
+            raise IndexError('Chapter out of bounds (%d chapters)' % chapter_count)
+        # change from 1-indexed (book chapters start at 1) to 0-indexed (arrays start at 0)
+        chapter = book_chapter - 1
+        
+        if book_chapter == chapter_count:
+            next_ch_info = None
+        else:
+            next_ch_info = self._dll.AAXGetChapterInfo(self._audiobook_handle, chapter+1)
+        
+        # how do we seek? by frame index? start_time_milli?
+        self.seek(0)
+        
+        frame_width = self.get_frame_width()
+        frame = ''
+        frame_bytes = 0
+        while True:
+            frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
+            if frame_info is None:
+                if book_chapter is not None:
+                    raise AudiobookException('Error pulling frame for chapter')
+                break
+            
+            if frame_info.start_time_milli >= next_ch_info.start_time_milli:
+                break
+            
+            (enc_buf, enc_len) = self._dll.AAXGetEncodedAudio(self._audiobook_handle, 0x400)
+            (dec_buf, dec_len) = self._dll.AAXDecodePCMFrame(self._audiobook_handle, enc_buf, enc_len, (frame_width - frame_bytes))
+            frame += dec_buf.raw[:dec_len]
+            frame_bytes += dec_len
+            
+            if (frame_width - frame_bytes) < 0x1000:
+                yield frame
+                frame = ''
+                frame_bytes = 0
+
+        if frame_bytes > 0:
+            yield frame
     
     def _decode_book_iter(self):
         # self._dll.AAXSeekToChapter(self._audiobook_handle, 17)
