@@ -13,6 +13,38 @@ class DllReturnCodeError(Exception):
         returnCode = str(returnCode)
         Exception.__init__(self, returnCode)
 
+class ChapterInfo(object):
+    def __init__(self, data):
+        self._raw_data = data
+        (self.text,
+         self.start_time_milli,
+         self.chapter_index,
+         self.audible_file_index,
+         self.unk1,
+         self.unk2) = struct.unpack('<6I', data)
+    
+    def __str__(self):
+        return ''.join(repr(self).split(' '))
+    
+    def __repr__(self):
+        return '%08x %08x %08x %08x %08x %08x' % struct.unpack_from('<6I', self._raw_data)
+
+class FrameInfo(object):
+    def __init__(self, data):
+        self._raw_data = data
+        (self.aavd,
+         self.start_time_milli,
+         self.frame_index,
+         self.encoded_frame_data_length,
+         self.unk2,
+         self.unk3) = struct.unpack_from('<6I', data)
+    
+    def __str__(self):
+        return ''.join(repr(self).split(' '))
+    
+    def __repr__(self):
+        return '%08x %08x %08x %08x %08x %08x' % struct.unpack_from('<6I', self._raw_data)
+
 class AudibleDll(object):
     def __init__(self, filepath=None):
         if filepath is None:
@@ -149,22 +181,6 @@ class AudibleDll(object):
         return chapters.value
 
     def AAXGetChapterInfo(self, aax_handle, chapter):
-        class ChapterInfo(object):
-            def __init__(self, data):
-                self._raw_data = data
-                (self.text,
-                 self.start_time_milli,
-                 self.chapter_index,
-                 self.audible_file_index,
-                 self.unk1,
-                 self.unk2) = struct.unpack('<6I', data)
-            
-            def __str__(self):
-                return ''.join(repr(self).split(' '))
-            
-            def __repr__(self):
-                return '%08x %08x %08x %08x %08x %08x' % struct.unpack_from('<6I', self._raw_data)
-        
         buf_size = 24
         buf = create_string_buffer(buf_size)
         # buf = cast(create_string_buffer(buf_size), POINTER(wintypes.BYTE))
@@ -224,22 +240,6 @@ class AudibleDll(object):
         return (decoded_buf, out_size.value)
     
     def AAXGetNextFrameInfo(self, aax_handle):
-        class FrameInfo(object):
-            def __init__(self, data):
-                self._raw_data = data
-                (self.aavd,
-                 self.unk1,
-                 self.frame_index,
-                 self.encoded_frame_data_length,
-                 self.unk2,
-                 self.unk3) = struct.unpack_from('<6I', data)
-            
-            def __str__(self):
-                return ''.join(repr(self).split(' '))
-            
-            def __repr__(self):
-                return '%08x %08x %08x %08x %08x %08x' % struct.unpack_from('<6I', self._raw_data)
-        
         buf = create_string_buffer(24)
         returnCode = self._handle_funcs.AAXGetNextFrameInfo(aax_handle, buf)
         if returnCode != 0:
