@@ -31,39 +31,37 @@ class Audiobook:
         
         self._dll = audible.AudibleDll()
         self._audiobook_handle = None
-        self.open()
+        self._open()
         self._authenticate()
         self._channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
         self._sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
         self._frame_width = self._channels * self._sample_rate
     
-    def _verify_opened(self):
-        if self._audiobook_handle is None:
-            raise ValueError('Operation on closed audiobook')
-
     def _authenticate(self):
         try:
             self._dll.AAXAuthenticateWin(self._audiobook_handle)
         except DllReturnCodeError:
             raise Exception('Authentication error; trying logging in from AudibleManager first')
 
-    def open(self):
+    def _open(self):
         if self._audiobook_handle is not None:
             return
         self._audiobook_handle = self._dll.AAXOpenFileWinA(self._filepath)
     
-    def close(self):
+    def _close(self):
         if self._audiobook_handle is None:
             return
         self._dll.AAXCloseFile(self._audiobook_handle)
         self._audiobook_handle = None
     
     def seek(self, offset):
-        self._verify_opened()
         self._dll.AAXSeek(self._audiobook_handle, offset)
+    
+    def seek_to_chapter(self, book_chapter):
+        chapter = self._book_chapter_to_dll_chapter(book_chapter)
+        self._dll.AAXSeekToChapter(self._audiobook_handle, chapter)
 
     def get_chapter_count(self):
-        self._verify_opened()
         chapters = self._dll.AAXGetChapterCount(self._audiobook_handle)
         return chapters
     
@@ -100,6 +98,9 @@ class Audiobook:
             raise IndexError('Chapter out of bounds (%d chapters)' % chapter_count)
     
     def _decode_chapter_iter(self, book_chapter):
+        # For some reason, the handle needs to be reset before it can perform certain DLL functions
+        self.seek(0)
+        
         self._verify_chapter(book_chapter)
         chapter = self._book_chapter_to_dll_chapter(book_chapter)
         
@@ -108,7 +109,7 @@ class Audiobook:
         else:
             next_ch_info = self._dll.AAXGetChapterInfo(self._audiobook_handle, chapter+1)
         
-        self._dll.AAXSeekToChapter(self._audiobook_handle, chapter)
+        self.seek_to_chapter(book_chapter)
         
         frame = ''
         frame_bytes = 0
