@@ -171,7 +171,6 @@ class AudibleDll(object):
     
     def AAXOpenFileWinA(self, file_path):
         aax_handle = POINTER(c_ubyte)()
-        # fname_buf = wintypes.LPWSTR(file_path)
         fname_buf = create_string_buffer(file_path)
         
         returnCode = self._handle_funcs.AAXOpenFileWinA(byref(aax_handle), fname_buf)

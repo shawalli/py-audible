@@ -36,7 +36,7 @@ class Audiobook:
         self._channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
         self._sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
         self._frame_width = self._channels * self._sample_rate
-
+    
     def _verify_opened(self):
         if self._audiobook_handle is None:
             raise ValueError('Operation on closed audiobook')
@@ -47,16 +47,6 @@ class Audiobook:
         except DllReturnCodeError:
             raise Exception('Authentication error; trying logging in from AudibleManager first')
 
-    def _get_chapter_offset(self, chapter):
-        offset = 0
-        
-        for i in range(0, (chapter - 1)):
-            offset += self._dll.AAXGetChapterStartTime(self._audiobook_handle, chapter)
-        return offset
-    
-    # def _get_chapter_length(self, chapter):
-        
-    
     def open(self):
         if self._audiobook_handle is not None:
             return
@@ -76,26 +66,6 @@ class Audiobook:
         self._verify_opened()
         chapters = self._dll.AAXGetChapterCount(self._audiobook_handle)
         return chapters
-
-    def get_chapter_encoded_audio(self, book_chapter):
-        chapter_count = self.get_chapter_count()
-        if book_chapter > chapter_count:
-            raise IndexError('Chapter out of bounds (%d chapters)' % chapter_count)
-        # change from 1-indexed (book chapters start at 1) to 0-indexed (arrays start at 0)
-        chapter = book_chapter - 1
-        
-        offset = self._get_chapter_offset(chapter)
-        length = self._dll.AAXGetChapterStartTime(self._audiobook_handle, chapter)
-        print 'off: len'
-        print offset, length
-        
-        self._dll.AAXSeek(self._audiobook_handle, offset)
-        return self._dll.AAXGetEncodedAudio(self._audiobook_handle, length)
-    
-    def get_frame_width(self):
-        sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
-        channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
-        return sample_rate * channels
     
     def _get_ffmpeg_args(self):
         args = \
@@ -111,7 +81,7 @@ class Audiobook:
         ]
         return args
     
-    def decode_chapter(self, book_chapter):
+    def chapter_to_mp3(self, book_chapter):
         filename='oldmanswar_%d.mp3' % book_chapter
         
         av = avconv.AvConv(filename, *self._get_ffmpeg_args())
@@ -120,22 +90,26 @@ class Audiobook:
         av.close()
         return filename
     
-    def _decode_chapter_iter(self, book_chapter):
+    @staticmethod
+    def _book_chapter_to_dll_chapter(book_chapter):
+        return book_chapter - 1
+    
+    def _verify_chapter(self, book_chapter):
         chapter_count = self.get_chapter_count()
         if book_chapter > chapter_count:
             raise IndexError('Chapter out of bounds (%d chapters)' % chapter_count)
-        # change from 1-indexed (book chapters start at 1) to 0-indexed (arrays start at 0)
-        chapter = book_chapter - 1
+    
+    def _decode_chapter_iter(self, book_chapter):
+        self._verify_chapter(book_chapter)
+        chapter = self._book_chapter_to_dll_chapter(book_chapter)
         
         if book_chapter == chapter_count:
-            print 'LAST CHAPTER'
             next_ch_info = None
         else:
             next_ch_info = self._dll.AAXGetChapterInfo(self._audiobook_handle, chapter+1)
         
         self._dll.AAXSeekToChapter(self._audiobook_handle, chapter)
         
-        frame_width = self.get_frame_width()
         frame = ''
         frame_bytes = 0
         while True:
@@ -143,7 +117,6 @@ class Audiobook:
             if frame_info is None:
                 if next_ch_info is not None:
                     raise AudiobookException('Error pulling frame for chapter')
-                print 'LAST FRAME REACHED'
                 break
             
             # if on the last chapter, continue until frame_info is returned as None
@@ -166,48 +139,33 @@ class Audiobook:
             yield frame
     
     def _decode_book_iter(self):
-        # self._dll.AAXSeekToChapter(self._audiobook_handle, 17)
-        
-        sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
-        channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
-        
-        print sample_rate
-        print channels
-        frame_width = sample_rate * channels
+        self._dll.AAXSeek(self._audiobook_handle, 0)
+    
         frame = ''
         frame_bytes = 0
-        
-        self._dll.AAXSeek(self._audiobook_handle, 0)
-        
-        # mod = 0
-        enc_buf = ''
-        frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
-        from binascii import hexlify
-        while frame_info is not None:
-            (buf, length) = self._dll.AAXGetEncodedAudio(self._audiobook_handle, 0x400)
-            # print 'outsize:%d (%x)' % (length,length)
-            # print hexlify(buf.raw[:length])
-            enc_buf += buf.raw[:length]
-            (decoded_buf, decoded_buf_length) = self._dll.AAXDecodePCMFrame(self._audiobook_handle, buf, length, (frame_width - frame_bytes))
-            frame += decoded_buf.raw[:decoded_buf_length]
-            frame_bytes += decoded_buf_length
-            # print 'processed:%d (%x)' % (decoded_buf_length, decoded_buf_length)
+        while True:
+            frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
+            if frame_info is None:
+                break
             
-            if frame_width - frame_bytes < 4096:
-                # print 'read:%d (%x)   framesize:%d (%x) ... processing' % (frame_bytes, frame_bytes, frame_width, frame_width)
-                yield (frame, enc_buf)
+            (enc_buf, enc_len) = self._dll.AAXGetEncodedAudio(self._audiobook_handle)
+            (dec_buf, dec_len) = self._dll.AAXDecodePCMFrame(self._audiobook_handle, enc_buf, enc_len, (self._frame_width - frame_bytes))
+            frame += dec_buf.raw[:dec_len]
+            frame_bytes += dec_len
+            
+            if (self._frame_width - frame_bytes) < audible.AudibleDll.PCM_BUFFER_SIZE:
+                yield frame
                 frame = ''
                 frame_bytes = 0
-                enc_buf = ''
-                # mod += 1
-                # if mod % 100 == 0:
-                    # print 'processed %d frames' % mod
-            frame_info = self._dll.AAXGetNextFrameInfo(self._audiobook_handle)
+
         if frame_bytes > 0:
-            yield (frame, enc_buf)
+            yield frame
     
-    def decode_book(self):
-        av = avconv.AvConv('old2.mp3', *'-f s16le -ac 2 -ar 22050 -i -'.split(' '))
-        for (i, (frame, enc_buf)) in enumerate(self._decode_book_iter()):
+    def book_to_mp3(self):
+        filename='oldmanswar.mp3'
+        
+        av = avconv.AvConv(filename, *self._get_ffmpeg_args())
+        for frame in self._decode_book_iter():
             av.write(frame)
         av.close()
+        return filename
