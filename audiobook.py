@@ -103,7 +103,7 @@ class Audiobook:
         self._verify_chapter(book_chapter)
         chapter = self._book_chapter_to_dll_chapter(book_chapter)
         
-        if book_chapter == chapter_count:
+        if book_chapter == self.get_chapter_count():
             next_ch_info = None
         else:
             next_ch_info = self._dll.AAXGetChapterInfo(self._audiobook_handle, chapter+1)
