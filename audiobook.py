@@ -32,6 +32,8 @@ class Audiobook:
         self._dll = audible.AudibleDll()
         self._audiobook_handle = None
         self._open()
+        from binascii import hexlify
+
         self._authenticate()
         self._channels = self._dll.AAXGetAudioChannelCount(self._audiobook_handle)
         self._sample_rate = self._dll.AAXGetSampleRate(self._audiobook_handle)
@@ -169,11 +171,9 @@ class Audiobook:
         if frame_bytes > 0:
             yield frame
     
-    def book_to_mp3(self):
-        filename='oldmanswar.mp3'
-        
-        av = avconv.AvConv(filename, *self._get_ffmpeg_args())
+    def book_to_mp3(self, output_filepath):
+        av = avconv.AvConv(output_filepath, *self._get_ffmpeg_args())
         for frame in self._decode_book_iter():
             av.write(frame)
         av.close()
-        return filename
+        return output_filepath

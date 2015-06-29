@@ -168,14 +168,54 @@ class AudibleDll(object):
         self._loadDllFunction(
             'AAXDecodePCMFrame',
             [POINTER(c_ubyte), POINTER(c_char), wintypes.DWORD, POINTER(c_char), wintypes.DWORD, POINTER(wintypes.DWORD)])
+        
+        self._loadDllFunction(
+            'AAXGetOriginalTitle',
+            [POINTER(c_ubyte), POINTER(wintypes.DWORD), POINTER(wintypes.DWORD),
+             POINTER(wintypes.DWORD), POINTER(wintypes.DWORD), POINTER(wintypes.DWORD),
+             POINTER(wintypes.DWORD), POINTER(wintypes.DWORD), POINTER(wintypes.DWORD)])
+    
+    def AAXGetOriginalTitle(self, aax_handle):
+        a = wintypes.DWORD()
+        b = wintypes.DWORD()
+        c = wintypes.DWORD()
+        d = wintypes.DWORD()
+        e = wintypes.DWORD()
+        f = wintypes.DWORD()
+        g = wintypes.DWORD()
+        h = wintypes.DWORD()
+        
+        returnCode = self._handle_funcs.AAXGetOriginalTitle(aax_handle, byref(a), byref(b), byref(c), byref(d), byref(e), byref(f), byref(g), byref(h))
+        print returnCode
+        print 'a:', a
+        print 'b:', b
+        print 'c:', c
+        print 'd:', d
+        print 'e:', e
+        print 'f:', f
+        print 'g:', g
+        print 'h:', h
+        
+        from binascii import hexlify, unhexlify
+        print hexlify(title_buf.raw)
     
     def AAXOpenFileWinA(self, file_path):
-        aax_handle = POINTER(c_ubyte)()
+        _handle = (c_ubyte * 0x1000)()
+        aax_handle = cast(_handle, POINTER(c_ubyte))
         fname_buf = create_string_buffer(file_path)
         
         returnCode = self._handle_funcs.AAXOpenFileWinA(byref(aax_handle), fname_buf)
         if returnCode != 0:
             raise DllReturnCodeError(returnCode)
+        
+        import struct
+        print _handle
+        #d = cast(_handle, c_char_p)
+        print bytes(_handle).decode('ASCII')
+        # for i in range(0, 0x1000, 0x10):
+            # a, b, c, d = struct.unpack_from('<%02x%02x', d.value, offset=i)
+            # print '%08x: %08x %08x %08x %08x' % (i, a, b, c, d)
+        
         return aax_handle
     
     def AAXCloseFile(self, aax_handle):
